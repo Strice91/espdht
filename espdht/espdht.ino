@@ -14,8 +14,8 @@ DHT sensor(DHTPIN, DHTTYPE);
 WiFiClient espClient;
 PubSubClient client(espClient);
 
-float h;
-float t;
+float h; //humidity
+float t; //temperature
 bool error = false;
 
 void setup() {
@@ -23,6 +23,27 @@ void setup() {
   Serial.println(F("DHT22 test!"));
   setup_wifi();
   sensor.begin();
+  client.setServer(MQTTSERVER, MQTTPORT);
+  if (!client.connected()) {
+    mqtt_connect();
+  }
+}
+
+void mqtt_connect() {
+  while (!client.connected()){
+    Serial.print("Connecting to MQTT broker ");
+    Serial.println(MQTTSERVER);
+    bool result = client.connect(HOSTNAME, MQTTUSER, MQTTPASSWORD);
+    if(result){
+      Serial.println("OK");
+    }
+    else {
+      Serial.print("[Error] Not connected: ");
+      Serial.print(client.state());
+      Serial.println(" Wait 5 seconds before retry.");
+      delay(5000);
+    }
+  }
 }
 
 void setup_wifi() {
