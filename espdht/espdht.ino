@@ -17,15 +17,35 @@ PubSubClient client(espClient);
 float h; //humidity
 float t; //temperature
 bool error = false;
+char* T_TOPIC;
+char* H_TOPIC;
+char* D_TOPIC;
+
 
 void setup() {
   Serial.begin(115200);
   Serial.println(F("DHT22 test!"));
+
+  size_t topic_len = strlen(HOSTNAME) + strlen("/temperature") + 1;
+  T_TOPIC = new char[topic_len];
+  snprintf(T_TOPIC, topic_len, "%s/temperature", HOSTNAME);
+
+  topic_len = strlen(HOSTNAME) + strlen("/humidity") + 1; 
+  H_TOPIC = new char[topic_len];
+  snprintf(H_TOPIC, topic_len, "%s/humidity", HOSTNAME);
+
+  topic_len = strlen(HOSTNAME) + strlen("/debug") + 1; 
+  D_TOPIC = new char[topic_len];
+  snprintf(D_TOPIC, topic_len, "%s/debug", HOSTNAME);
+
   setup_wifi();
   sensor.begin();
+
+
+  
   client.setServer(MQTTSERVER, MQTTPORT);
   if (!client.connected()) {
-    mqtt_connect();
+    //mqtt_connect();
   }
 }
 
@@ -72,6 +92,9 @@ void read_sensor() {
 
 void loop() {
   delay(2000);
+  Serial.println(T_TOPIC);
+  Serial.println(H_TOPIC);
+  //Serial.println(DEBUGTOPIC);
   read_sensor();
   if (error) {
     Serial.println("[ERROR] Please check the DHT sensor !");
