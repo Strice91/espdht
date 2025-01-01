@@ -1,5 +1,5 @@
-#include <WiFi.h>
-#include <PubSubClient.h>
+#include <WebSocketsClient.h>  // include before MQTTPubSubClient.h
+#include <MQTTPubSubClient.h>
 #include <DHT.h>
 
 #include "settings.h"
@@ -9,10 +9,15 @@
 // https://randomnerdtutorials.com/esp32-dht11-dht22-temperature-humidity-sensor-arduino-ide/
 // https://xylem.aegean.gr/~modestos/mo.blog/esp32-send-dht-to-mqtt-and-deepsleep/
 // https://www.instructables.com/Temperature-and-Humidity-Using-ESP32-DHT22-MQTT-My/
+// https://www.elektormagazine.de/articles/prototyping-eines-energiezahlers-mit-esp32
+
+// Libraries
+// https://github.com/hideakitai/MQTTPubSubClient
+// https://github.com/Links2004/arduinoWebSockets
 
 DHT sensor(DHTPIN, DHTTYPE);
-WiFiClient espClient;
-PubSubClient client(espClient);
+WebSocketsClient webSocket;
+MQTTPubSubClient mqtt;
 
 float h; //humidity
 float t; //temperature
@@ -21,10 +26,68 @@ char* T_TOPIC;
 char* H_TOPIC;
 char* D_TOPIC;
 
+void setup_wifi() {
+  delay(20);
+  WiFi.setHostname(HOSTNAME);
+  WiFi.enableIPv6(true);
+  
+  Serial.print("[ INFO ] Try to connect to existing network '");
+  Serial.print(SSID);
+  Serial.print("' ");
+  WiFi.begin(SSID, PASSWORD);
+  
+  uint8_t timeout = 20;
+  do {
+    delay(500);
+    Serial.print(".");
+    timeout--;
+  } while (timeout && WiFi.status() != WL_CONNECTED);
+
+  Serial.print("\n[  OK  ] IP address: '");
+  Serial.print(WiFi.localIP());
+  Serial.println("'");
+}
+
+void mqtt_connect() {
+  // connect to host with MQTT over WebSocket securely
+  Serial.print("[ INFO ] Connecting to Broker '");
+  Serial.print(MQTTSERVER);
+  Serial.print("' at Port '");
+  Serial.print(MQTTPORT);
+  Serial.println("' via Websocket.");
+  webSocket.beginSslWithBundle(MQTTSERVER, MQTTPORT, "/", NULL, 0, "mqtt");
+  webSocket.setReconnectInterval(5000);
+  //webSocket.onEvent(webSocketEvent);
+  Serial.println("[  OK  ] Websocket established!");
+
+  Serial.print("[ INFO ] Authenticating at MQTT broker as Client '");
+  Serial.print(HOSTNAME);
+  Serial.println("'");
+  // initialize mqtt client
+  mqtt.begin(webSocket);
+  // connect to mqtt broker
+  while (!mqtt.connect(HOSTNAME, MQTTUSER, MQTTPASS)){
+    Serial.println("[ FAIL ] Retry in 5 seconds.");
+    delay(5000);
+  }
+  Serial.println("[  OK  ] Connected to MQTT broker!");
+}
+
+void read_sensor() {
+  error = false; // Reset Error Flag
+  h = sensor.readHumidity(); // Try to read humidity
+  t = sensor.readTemperature(); // Try to read temperature
+  error = isnan(t) || isnan(h); // Check if NAN reading
+}
 
 void setup() {
   Serial.begin(115200);
-  Serial.println(F("DHT22 test!"));
+  Serial.setDebugOutput(true);
+  for(uint8_t t = 4; t > 0; t--) {
+      Serial.printf("[ INIT ] BOOT WAIT %d...\n", t);
+      Serial.flush();
+      delay(1000);
+  }
 
   size_t topic_len = strlen(HOSTNAME) + strlen("/temperature") + 1;
   T_TOPIC = new char[topic_len];
@@ -39,70 +102,30 @@ void setup() {
   snprintf(D_TOPIC, topic_len, "%s/debug", HOSTNAME);
 
   setup_wifi();
+  mqtt_connect();
   sensor.begin();
 
-
-  
-  client.setServer(MQTTSERVER, MQTTPORT);
-  if (!client.connected()) {
-    //mqtt_connect();
-  }
-}
-
-void mqtt_connect() {
-  while (!client.connected()){
-    Serial.print("Connecting to MQTT broker ");
-    Serial.println(MQTTSERVER);
-    bool result = client.connect(HOSTNAME, MQTTUSER, MQTTPASSWORD);
-    if(result){
-      Serial.println("OK");
-    }
-    else {
-      Serial.print("[Error] Not connected: ");
-      Serial.print(client.state());
-      Serial.println(" Wait 5 seconds before retry.");
-      delay(5000);
-    }
-  }
-}
-
-void setup_wifi() {
-  delay(20);
-  WiFi.setHostname(HOSTNAME);
-  WiFi.begin(SSID, PASSWORD);
-  Serial.print("\n\nTry to connect to existing network");
-  
-  uint8_t timeout = 20;
-  do {
-    delay(500);
-    Serial.print(".");
-    timeout--;
-  } while (timeout && WiFi.status() != WL_CONNECTED);
-
-  Serial.print("\nIP address: ");
-  Serial.println(WiFi.localIP());
-}
-
-void read_sensor() {
-  error = false; // Reset Error Flag
-  h = sensor.readHumidity(); // Try to read humidity
-  t = sensor.readTemperature(); // Try to read temperature
-  error = isnan(t) || isnan(h); // Check if NAN reading
+  Serial.println("[ INFO ] Setup finished. Start main loop ...");
 }
 
 void loop() {
-  delay(2000);
-  Serial.println(T_TOPIC);
-  Serial.println(H_TOPIC);
-  //Serial.println(DEBUGTOPIC);
+  delay(DHTINTERVAL);
+  mqtt.publish(D_TOPIC, "START");
   read_sensor();
   if (error) {
-    Serial.println("[ERROR] Please check the DHT sensor !");
+    Serial.println("[ FAIL ] Please check the DHT sensor !");
+    mqtt.publish(D_TOPIC, "ERROR");
   }
   else {
-    Serial.print("Temperature : ");
+    Serial.print("[ INFO ] ");
+    Serial.print(T_TOPIC);
+    Serial.print(": ");
     Serial.print(t);
-    Serial.print(" | Humidity : ");
+    Serial.print(" | ");
+    Serial.print(H_TOPIC);
+    Serial.print(": ");
     Serial.println(h);
+    mqtt.publish(T_TOPIC, String(t).c_str());
+    mqtt.publish(H_TOPIC, String(h).c_str());
   }
 }

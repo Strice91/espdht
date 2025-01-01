@@ -1,12 +1,12 @@
 #pragma once
 
+const char* HOSTNAME = "kueche";
+// Sensor
 const int DHTPIN = 4;
 const int DHTTYPE = DHT22; // DHT22 or DHT11
-const char* HOSTNAME = "ESPDHT";
-const char* MQTTSERVER = "mqtt_broker_IP";
-const uint16_t MQTTPORT = 1883;
-const char* MQTTUSER = "username";
-const char* MQTTPASSWORD = "password";
-const char* TTOPIC = "/temperature";
-const char* HTOPIC = "/humidity";
-const char* DEBUGTOPIC = "/debug";
+const int DHTINTERVAL = 60 * 1000;
+// MQTT
+const char* MQTTSERVER = "ip_or_hostname_of_mqtt_broker";
+const uint16_t MQTTPORT = 443;
+const char* MQTTUSER = "mqtt_username";
+const char* MQTTPASS = "***";
