@@ -1,3 +1,6 @@
+#include <WiFi.h>
+#include <WiFiMulti.h>
+
 #include <WebSocketsClient.h>  // include before MQTTPubSubClient.h
 #include <MQTTPubSubClient.h>
 #include <DHT.h>
@@ -12,10 +15,12 @@
 // https://www.elektormagazine.de/articles/prototyping-eines-energiezahlers-mit-esp32
 
 // Libraries
+// https://github.com/adafruit/DHT-sensor-library
 // https://github.com/hideakitai/MQTTPubSubClient
 // https://github.com/Links2004/arduinoWebSockets
 
 DHT sensor(DHTPIN, DHTTYPE);
+WiFiMulti wlan;
 WebSocketsClient webSocket;
 MQTTPubSubClient mqtt;
 
@@ -29,39 +34,46 @@ char* D_TOPIC;
 void setup_wifi() {
   delay(20);
   WiFi.setHostname(HOSTNAME);
+  WiFi.mode(WIFI_STA);
   WiFi.enableIPv6(true);
-  
+
   Serial.print("[ INFO ] Try to connect to existing network '");
   Serial.print(SSID);
   Serial.print("' ");
-  WiFi.begin(SSID, PASSWORD);
+  wlan.addAP(SSID, PASSWORD);
   
-  uint8_t timeout = 20;
   do {
-    delay(500);
+    delay(1000);
     Serial.print(".");
-    timeout--;
-  } while (timeout && WiFi.status() != WL_CONNECTED);
+  } while (wlan.run() != WL_CONNECTED);
 
-  Serial.print("\n[  OK  ] IP address: '");
+  Serial.print("\n[  OK  ] Connected to: '");
+  Serial.print(WiFi.SSID());
+  Serial.print("' | IP address: '");
   Serial.print(WiFi.localIP());
   Serial.println("'");
 }
 
-void mqtt_connect() {
+void webseocket_connect() {
+  // Remove previous connection
+  webSocket.disconnect();
   // connect to host with MQTT over WebSocket securely
-  Serial.print("[ INFO ] Connecting to Broker '");
+  Serial.print("[ INFO ] Connecting to broker '");
   Serial.print(MQTTSERVER);
-  Serial.print("' at Port '");
+  Serial.print("' at port '");
   Serial.print(MQTTPORT);
-  Serial.println("' via Websocket.");
+  Serial.println("' via websocket.");
   webSocket.beginSslWithBundle(MQTTSERVER, MQTTPORT, "/", NULL, 0, "mqtt");
   webSocket.setReconnectInterval(5000);
   //webSocket.onEvent(webSocketEvent);
   Serial.println("[  OK  ] Websocket established!");
+}
 
-  Serial.print("[ INFO ] Authenticating at MQTT broker as Client '");
+void mqtt_connect() {
+  Serial.print("[ INFO ] Authenticating at MQTT broker as client '");
   Serial.print(HOSTNAME);
+  Serial.print("' with username '");
+  Serial.print(MQTTUSER);
   Serial.println("'");
   // initialize mqtt client
   mqtt.begin(webSocket);
@@ -70,6 +82,7 @@ void mqtt_connect() {
     Serial.println("[ FAIL ] Retry in 5 seconds.");
     delay(5000);
   }
+  mqtt.publish(D_TOPIC, "CONNECT");
   Serial.println("[  OK  ] Connected to MQTT broker!");
 }
 
@@ -102,15 +115,27 @@ void setup() {
   snprintf(D_TOPIC, topic_len, "%s/debug", HOSTNAME);
 
   setup_wifi();
+  webseocket_connect();
   mqtt_connect();
   sensor.begin();
 
+  mqtt.publish(D_TOPIC, "SETUP");
   Serial.println("[ INFO ] Setup finished. Start main loop ...");
 }
 
 void loop() {
-  delay(DHTINTERVAL);
-  mqtt.publish(D_TOPIC, "START");
+  mqtt.update(); // should be called https://github.com/hideakitai/MQTTPubSubClient/blob/main/examples/WiFiMQTToverWebSocketSecure/WiFiMQTToverWebSocketSecure.ino#L66
+
+  if (!webSocket.isConnected()) {
+    Serial.println("[ FAIL ] Lost Websocket Connection! Reconnecting ... ");
+    webseocket_connect();
+  }
+
+  if (!mqtt.isConnected()) {
+    Serial.println("[ FAIL ] Lost MQTT Connection! Reconnecting ... ");
+    mqtt_connect();
+  }
+
   read_sensor();
   if (error) {
     Serial.println("[ FAIL ] Please check the DHT sensor !");
@@ -128,4 +153,6 @@ void loop() {
     mqtt.publish(T_TOPIC, String(t).c_str());
     mqtt.publish(H_TOPIC, String(h).c_str());
   }
+
+  delay(DHTINTERVAL);
 }
